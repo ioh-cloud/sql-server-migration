@@ -1,1 +1,7 @@
+.DS_Store
 */.venv
+test.py
+.venv
+*/__pycache__
+requirements.txt
+gcs-backup
