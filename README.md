@@ -170,6 +170,121 @@ Steps:
 4. **Configure the PowerShell Script**:
    Update constants in the script with bucket name, key file path, and other details.
 
+   ```powershell
+   New-Variable -Name LocalPathForBackupFiles -Value "<path-to-backup-files>" -Option Constant
+   New-Variable -Name BucketName -Value "<bucket-name>" -Option Constant
+   New-Variable -Name AccountName -Value "<service-account-email>" -Option Constant
+   ```
+
+5. **Create a Scheduled Task for Regular Uploads**:
+   Create a scheduled task so that the script is called regularly. For example, the scheduled task below starts execution at 2:45 PM and runs every minute. Replace `<username>` with a local user account with privileges to read and edit the settings.json file on your machine.
+
+   ```bash
+   schtasks /create /sc minute /mo 1 /tn "Cloud Storage Upload script" /tr "powershell <full-path-to-the-upload-script>" /st 14:45 /ru <local_account_username> /rp
+   ```
+
+   **Note**: You will be prompted to provide the password for the local `<local_account_username>` when you create the task.
+
+---
+
+### On-Premises Windows Server SQL Server: Automate Backup and Upload Script
+
+To schedule a **transaction log backup** on Windows Server 2019 using SQL Server Management Studio (SSMS), follow these steps:
+
+---
+
+### **Step 1: Ensure the Database is in FULL Recovery Model**
+Transaction log backups are only possible if the database is in the **FULL** recovery model.
+
+1. Open SSMS and connect to your SQL Server instance.
+2. Expand **Databases**, right-click on the target database, and choose **Properties**.
+3. In the **Database Properties** window, go to the **Options** page.
+4. Under **Recovery Model**, ensure it is set to **FULL**. If not:
+   - Change the recovery model to **FULL**.
+   - Click **OK** to save the changes.
+
+---
+
+### **Step 2: Create a Transaction Log Backup Script**
+1. Right-click the database and select **Tasks** → **Back Up...**.
+2. In the **Back Up Database** window:
+   - **Backup type**: Choose **Transaction Log**.
+   - **Destination**: Add a file destination (e.g., `C:\SQLBackups\YourDatabase_Log.trn`).
+3. Click **Script** (at the top of the window) → **Script Action to New Query Window**.
+4. Copy the generated script for later use.
+
+Example Script:
+```sql
+BACKUP LOG [YourDatabase]
+TO DISK = N'C:\SQLBackups\YourDatabase_Log.trn'
+WITH NOFORMAT, NOINIT,
+NAME = N'YourDatabase-Transaction Log Backup',
+SKIP, NOREWIND, NOUNLOAD, STATS = 10;
+```
+
+---
+
+### **Step 3: Schedule the Transaction Log Backup Using SQL Server Agent**
+SQL Server Agent is used to automate backups.
+
+1. **Enable SQL Server Agent**:
+   - In SSMS, expand the **SQL Server Agent** node in Object Explorer.
+   - If it is not running, right-click and select **Start**.
+
+2. **Create a New Job**:
+   - Right-click on **Jobs** under SQL Server Agent and select **New Job**.
+   - In the **New Job** window:
+     - **Name**: Enter a name (e.g., `Transaction Log Backup`).
+     - **Description**: Optionally, add a description.
+
+3. **Add a Step to Perform the Backup**:
+   - Go to the **Steps** page and click **New**.
+   - In the **New Job Step** window:
+     - **Step name**: Enter a name (e.g., `Backup Transaction Log`).
+     - **Type**: Select **Transact-SQL script (T-SQL)**.
+     - **Database**: Select your target database.
+     - **Command**: Paste the transaction log backup script created earlier.
+   - Click **OK** to save the step.
+
+4. **Set a Schedule for the Job**:
+   - Go to the **Schedules** page and click **New**.
+   - In the **New Job Schedule** window:
+     - **Name**: Enter a schedule name (e.g., `Every 15 Minutes`).
+     - **Schedule Type**: Select **Recurring**.
+     - **Frequency**: Set the frequency (e.g., **Daily**).
+     - **Daily Frequency**: Set the interval (e.g., every **15 minutes**).
+     - **Duration**: Specify the start and end dates.
+   - Click **OK** to save the schedule.
+
+5. **Enable Alerts (Optional)**:
+   - Go to the **Notifications** page and set up alerts if the job fails.
+
+6. Click **OK** to save the job.
+
+---
+
+### **Step 4: Test the Backup Job**
+1. In **SQL Server Agent**, locate the job you just created.
+2. Right-click the job and select **Start Job at Step...**.
+3. Verify the transaction log backup file is created at the specified location.
+
+---
+
+### **Step 5: Verify Scheduled Backups**
+1. Check the **SQL Server Agent Job History**:
+   - In **SQL Server Agent**, right-click the job and select **View History**.
+   - Ensure the job runs successfully at the scheduled intervals.
+
+2. **Manually Inspect Backup Files**:
+   - Go to the destination folder (e.g., `C:\SQLBackups`) to confirm that transaction log files are being generated.
+
+---
+
+### Additional Tips:
+- Ensure sufficient disk space for transaction log backups.
+- Periodically validate backups by restoring them to a test environment.
+- Combine transaction log backups with regular **full backups** for a complete backup strategy.
+
 ---
 
 ## Testing
