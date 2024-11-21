@@ -143,50 +143,6 @@ For a detailed list of permissions, see the "Setup and Configuration" section.
 
 ---
 
-### Upload Script Configuration
-
-The `scheduled-upload` folder contains a PowerShell script (`upload-script.ps1`) for automating backup uploads to GCS.
-
-Steps:
-1. **Create a Service Account**:
-   ```bash
-   gcloud iam service-accounts create tx-log-backup-writer \
-       --description="Service Account for Backup Uploads"
-   ```
-
-2. **Assign Storage Permissions**:
-   ```bash
-   gcloud storage buckets add-iam-policy-binding gs://<BUCKET_NAME> \
-       --member="serviceAccount:tx-log-backup-writer@${PROJECT_ID}.iam.gserviceaccount.com" \
-       --role="roles/storage.objectAdmin"
-   ```
-
-3. **Generate a Service Account Key**:
-   ```bash
-   gcloud iam service-accounts keys create KEY_FILE.json \
-       --iam-account tx-log-backup-writer@${PROJECT_ID}.iam.gserviceaccount.com
-   ```
-
-4. **Configure the PowerShell Script**:
-   Update constants in the script with bucket name, key file path, and other details.
-
-   ```powershell
-   New-Variable -Name LocalPathForBackupFiles -Value "<path-to-backup-files>" -Option Constant
-   New-Variable -Name BucketName -Value "<bucket-name>" -Option Constant
-   New-Variable -Name AccountName -Value "<service-account-email>" -Option Constant
-   ```
-
-5. **Create a Scheduled Task for Regular Uploads**:
-   Create a scheduled task so that the script is called regularly. For example, the scheduled task below starts execution at 2:45 PM and runs every minute. Replace `<username>` with a local user account with privileges to read and edit the settings.json file on your machine.
-
-   ```bash
-   schtasks /create /sc minute /mo 1 /tn "Cloud Storage Upload script" /tr "powershell <full-path-to-the-upload-script>" /st 14:45 /ru <local_account_username> /rp
-   ```
-
-   **Note**: You will be prompted to provide the password for the local `<local_account_username>` when you create the task.
-
----
-
 ### On-Premises Windows Server SQL Server: Automate Backup and Upload Script
 
 To schedule a **transaction log backup** on Windows Server 2019 using SQL Server Management Studio (SSMS), follow these steps:
@@ -263,20 +219,44 @@ SQL Server Agent is used to automate backups.
 
 ---
 
-### **Step 4: Test the Backup Job**
+### **Step 4: Configure the PowerShell Script for Backup Upload**
+
+Update constants in the `upload-script.ps1` file with the bucket name, key file path, and other details.
+
+```powershell
+New-Variable -Name LocalPathForBackupFiles -Value "<path-to-backup-files>" -Option Constant
+New-Variable -Name BucketName -Value "<bucket-name>" -Option Constant
+New-Variable -Name AccountName -Value "<service-account-email>" -Option Constant
+```
+
+---
+
+### **Step 5: Create a Scheduled Task for Regular Uploads**
+Create a scheduled task so that the script is called regularly. For example, the scheduled task below starts execution at 2:45 PM and runs every minute. Replace `<username>` with a local user account with privileges to read and edit the settings.json file on your machine.
+
+```bash
+schtasks /create /sc minute /mo 1 /tn "Cloud Storage Upload script" /tr "powershell <full-path-to-the-upload-script>" /st 14:45 /ru <local_account_username> /rp
+```
+
+**Note**: You will be prompted to provide the password for the local `<local_account_username>` when you create the task.
+
+---
+
+### **Step 6: Test the Backup Job**
 1. In **SQL Server Agent**, locate the job you just created.
 2. Right-click the job and select **Start Job at Step...**.
 3. Verify the transaction log backup file is created at the specified location.
 
 ---
 
-### **Step 5: Verify Scheduled Backups**
-1. Check the **SQL Server Agent Job History**:
+### **Step 7: Verify Scheduled Backups and Uploads**
+1. **Check the SQL Server Agent Job History**:
    - In **SQL Server Agent**, right-click the job and select **View History**.
    - Ensure the job runs successfully at the scheduled intervals.
 
-2. **Manually Inspect Backup Files**:
-   - Go to the destination folder (e.g., `C:\SQLBackups`) to confirm that transaction log files are being generated.
+2. **Verify Backup File Uploads**:
+   - Check the destination folder (e.g., `C:\SQLBackups`) to confirm that transaction log files are being generated.
+   - Verify that the backup files are being uploaded to the GCS bucket according to the scheduled task.
 
 ---
 
