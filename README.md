@@ -147,7 +147,6 @@ or, your user must be member of the following predefined roles:
    ```
 
 4. **Assign Roles to the Service Account**:
-   Create and assign a custom `cloud.sql.importer` role:
    ```bash
    gcloud iam roles create cloud.sql.importer \
         --project ${PROJECT_ID} \
@@ -156,10 +155,11 @@ or, your user must be member of the following predefined roles:
         --permissions "cloudsql.instances.get, cloudsql.instances.import, eventarc.events.receiveEvent, storage.buckets.get, storage.objects.create, storage.objects.delete, storage.objects.get"
    ```
 5. **Attach the Cloud SQL import role to the Cloud function service account.**:
+   ```bash
         gcloud projects add-iam-policy-binding ${PROJECT_ID} \
         --member="serviceAccount:cloud-function-sql-restore-log@${PROJECT_ID}.iam.gserviceaccount.com" \
         --role="projects/${PROJECT_ID}/roles/cloud.sql.importer"
-
+   ```
 
 6. **Deploy the Function**:
 - On your local development environment, install and initialize the gcloud CLI.
