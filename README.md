@@ -80,14 +80,42 @@ The function must have a defined set of environment variables. Details about the
 - [Google Cloud PowerShell Module](https://cloud.google.com/tools/powershell/docs/quickstart)
 
 ### Permissions Required
-The function and setup scripts require various IAM roles, including:
-- `roles/cloudfunctions.developer`
-- `roles/cloudsql.editor`
-- `roles/storage.admin`
-- `roles/iam.roleAdmin`
-- `roles/iam.serviceAccountCreator`
+For the operations in this section below you need the following permissions:
 
-For a detailed list of permissions, see the "Setup and Configuration" section.
+                cloudsql.instances.get
+                cloudsql.instances.list
+                storage.buckets.create
+                storage.buckets.get
+                storage.buckets.getIamPolicy
+                storage.buckets.setIamPolicy
+                storage.buckets.update
+                storage.buckets.list
+                iam.roles.create
+                iam.roles.delete
+                iam.roles.get
+                iam.roles.list
+                iam.roles.undelete
+                iam.roles.update
+                iam.serviceAccounts.create
+                iam.serviceAccounts.get
+                iam.serviceAccounts.list     
+                resourcemanager.projects.list
+                resourcemanager.projects.get
+                resourcemanager.projects.getIamPolicy
+                resourcemanager.projects.setIamPolicy
+
+and member of the following predefined roles:
+                
+                roles/cloudfunctions.developer
+
+or, your user must be member of the following predefined roles:
+
+                roles/cloudsql.editor
+                roles/storage.admin
+                roles/iam.roleAdmin
+                roles/iam.serviceAccountCreator
+                roles/resourcemanager.projectIamAdmin
+                roles/cloudfunctions.developer
 
 ---
 
@@ -97,6 +125,8 @@ For a detailed list of permissions, see the "Setup and Configuration" section.
 
 1. **Create a GCS Bucket** for storing transaction log backups:
    ```bash
+   export PROJECT_ID=`gcloud config get-value project`
+
    gcloud storage buckets create gs://<BUCKET_NAME> \
        --location=<BUCKET_LOCATION> \
        --public-access-prevention
@@ -120,22 +150,40 @@ For a detailed list of permissions, see the "Setup and Configuration" section.
    Create and assign a custom `cloud.sql.importer` role:
    ```bash
    gcloud iam roles create cloud.sql.importer \
-       --project ${PROJECT_ID} \
-       --permissions "cloudsql.instances.import,storage.objects.get"
+        --project ${PROJECT_ID} \
+        --title "Cloud SQL Importer Role" \
+        --description "Grant permissions to import and synchronize data from a cloud storage bucket to a Cloud SQL instance" \
+        --permissions "cloudsql.instances.get, cloudsql.instances.import, eventarc.events.receiveEvent, storage.buckets.get, storage.objects.create, storage.objects.delete, storage.objects.get"
    ```
+5. **Attach the Cloud SQL import role to the Cloud function service account.**:
+        gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+        --member="serviceAccount:cloud-function-sql-restore-log@${PROJECT_ID}.iam.gserviceaccount.com" \
+        --role="projects/${PROJECT_ID}/roles/cloud.sql.importer"
 
-5. **Deploy the Function**:
+
+6. **Deploy the Function**:
+- On your local development environment, install and initialize the gcloud CLI.
+
+- Clone the sql server restore cloud function repository.
+
+- Navigate to Function folder
+
+- From the restore-sql-server-transaction-logs/Function folder, run the following gcloud command to deploy the cloud function:
    ```bash
-   gcloud functions deploy <FUNCTION_NAME> \
-       --gen2 \
-       --region=<REGION> \
-       --runtime=python312 \
-       --entry-point=fn_restore_log \
-       --trigger-bucket=<BUCKET_NAME> \
-       --service-account cloud-function-sql-restore-log@${PROJECT_ID}.iam.gserviceaccount.com
+   gcloud functions deploy <YOUR_FUNCTION_NAME> \
+        --gen2 \
+        --region=<YOUR_REGION> \
+        --retry \
+        --runtime=python312 \
+        --source=. \
+        --timeout=540 \
+        --entry-point=fn_restore_log \        
+        --set-env-vars USE_FIXED_FILE_NAME_FORMAT=False,PROCESSED_BUCKET_NAME=,MAX_OPERATION_FETCH_TIME_SECONDS=30
+        --trigger-bucket=<BUCKET_NAME> \
+        --service-account cloud-function-sql-restore-log@${PROJECT_ID}.iam.gserviceaccount.com
    ```
 
-6. **Set Invoker Permissions**:
+7. **Set Invoker Permissions**:
    ```bash
    gcloud functions add-invoker-policy-binding <FUNCTION_NAME> \
        --member="serviceAccount:cloud-function-sql-restore-log@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -221,14 +269,72 @@ SQL Server Agent is used to automate backups.
 
 ### **Step 4: Configure the PowerShell Script for Backup Upload**
 
+For the operations in this section below you need the following permissions:
+
+                iam.serviceAccounts.create
+                iam.serviceAccounts.get
+                iam.serviceAccounts.list
+                iam.serviceAccountKeys.create
+                iam.serviceAccountKeys.delete
+                iam.serviceAccountKeys.disable
+                iam.serviceAccountKeys.enable
+                iam.serviceAccountKeys.get
+                iam.serviceAccountKeys.list
+                resourcemanager.projects.get
+                resourcemanager.projects.list
+                resourcemanager.projects.getIamPolicy
+                resourcemanager.projects.setIamPolicy
+
+or, your user must be member of the following predefined roles:
+
+                roles/iam.serviceAccountCreator
+                roles/iam.serviceAccountKeyAdmin
+                roles/resourcemanager.projectIamAdmin                
+
+Powershell is the language of choice for the upload script because many SQL Server Database Administrators (DBAs) leverage PowerShell as a valuable tool to streamline and automate their tasks and efficiently manage database environments. PowerShell runs on Windows, Linux, and macOS.
+
+The powershell upload script runs in Powershell 5.1.X. or Powershell 7.X 
+You need to install the [GoogleCloud powershell module](https://cloud.google.com/tools/powershell/docs/quickstart).
+
+To set up the automatic file upload script, you need to perform some operations in your cloud project. In the [Cloud shell](https://cloud.google.com/shell/docs/using-cloud-shell) execute the following commands:
+
+1. First, create a service account that has rights to upload to the bucket:
+
+        gcloud iam service-accounts create tx-log-backup-writer \
+        --description="Account that writes transaction log backups to GCS" \
+        --display-name="tx-log-backup-writer"
+
+1. Grant rights on the service account to view, create and overwrite objects on the bucket:
+        
+        export PROJECT_ID=`gcloud config get-value project`
+
+        gcloud storage buckets add-iam-policy-binding gs://<BUCKET_NAME> --member=serviceAccount:tx-log-backup-writer@${PROJECT_ID}.iam.gserviceaccount.com --role=roles/storage.objectAdmin
+
+1. Create a private key for your service account. You need to store the private key file locally to be authorized to upload files to the bucket.
+
+        gcloud iam service-accounts keys create KEY_FILE \
+        --iam-account=tx-log-backup-writer@${PROJECT_ID}.iam.gserviceaccount.com
+
+1. Create a folder on a machine with access to the backup files. Copy the contents of the scheduled-upload folder from the repository in the newly created location. Copy the key file from the previous step in the same folder as the upload-script.ps1 file.
+
+
 Update constants in the `upload-script.ps1` file with the bucket name, key file path, and other details.
 
-```powershell
-New-Variable -Name LocalPathForBackupFiles -Value "<path-to-backup-files>" -Option Constant
-New-Variable -Name BucketName -Value "<bucket-name>" -Option Constant
-New-Variable -Name AccountName -Value "<service-account-email>" -Option Constant
-```
+Provide in the -Value parameter the full path to the folder where your backup files will be generated:
 
+        New-Variable -Name LocalPathForBackupFiles -Value "" -Option Constant
+
+Provide in the -Value parameter the name of the bucket where you want the backup files to be uploaded:
+
+        New-Variable -Name BucketName -Value "" -Option Constant
+
+Provide in the -Value parameter the full path to the key file that you generated earlier and saved locally on the machine where the script runs:
+
+        New-Variable -Name GoogleAccountKeyFile -Value "" -Option Constant
+
+ Provide in the -Value parameter the name of the CloudSqlInstance. Optional. Alternativelly, it can be inferred from the name of the files:
+
+        New-Variable -Name CloudSqlInstanceName -Value "" -Option Constant
 ---
 
 ### **Step 5: Create a Scheduled Task for Regular Uploads**
